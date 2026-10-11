@@ -15,20 +15,27 @@ char * basename(char *path) {
     char *p;
 
     p = path + strlen(path);
-    while (p >= path && *p != '/')
+    while (p > path && p[-1] == '/')
         p--;
 
-    return p + 1;
+    if (p == path)
+        return path;
+
+    while (p > path && p[-1] != '/')
+        p--;
+
+    return p;
 }
 
 void find(char *path, char *target, char *exec_argv[]) {
     char buf[512];
     char *p;
     int fd;
+    int n;
     struct stat st;
     struct dirent de;
 
-    // Open current path 
+    // Open current path
     if ((fd = open(path, O_RDONLY)) < 0) {
         fprintf(2, "find: cannot open %s\n", path);
         return;
@@ -41,7 +48,7 @@ void find(char *path, char *target, char *exec_argv[]) {
         return;
     }
 
-    // check if current path's basename match 
+    // check if current path's basename match
     if (strcmp(basename(path), target) == 0) {
         if (exec_argv == 0)
             printf("%s\n", path);
@@ -68,13 +75,13 @@ void find(char *path, char *target, char *exec_argv[]) {
     *p++ = '/';
 
     // Read each entry in folder and using recursion to search
-    while (read(fd, &de, sizeof(de)) >= sizeof(de)) {
+    while ((n = read(fd, &de, sizeof(de))) == (int)sizeof(de)) {
         if (de.inum == 0)
-        continue;
+            continue;
 
         // skip "." and ".." entries
         if (strcmp(de.name, ".") == 0 || strcmp(de.name, "..") == 0)
-        continue;
+            continue;
 
         memmove(p, de.name, DIRSIZ);
         p[DIRSIZ] = '\0';
@@ -82,6 +89,9 @@ void find(char *path, char *target, char *exec_argv[]) {
         // Recursively search the entry
         find(buf, target, exec_argv);
     }
+
+    if (n < 0)
+        fprintf(2, "find: read error in %s\n", path);
 
     close(fd);
 }
@@ -100,6 +110,11 @@ void run_exec(char *command_argv[], char* path){
         char *new_argv[MAXARG];
         int i = 0;
         while(command_argv[i] != 0){
+            if (i >= MAXARG - 2) {
+                fprintf(2, "find: too many arguments\n");
+                exit(1);
+            }
+
             new_argv[i] = command_argv[i];
             i++;
         }
@@ -112,7 +127,8 @@ void run_exec(char *command_argv[], char* path){
         exit(1);
     }
 
-    wait(&status);
+    if (wait(&status) < 0)
+        fprintf(2, "find: wait failed\n");
 }
 
 int main(int argc, char *argv[]) {
@@ -124,7 +140,7 @@ int main(int argc, char *argv[]) {
     }
 
     command_argv = 0;
-    
+
     if (argc > 3) {
         if (strcmp(argv[3], "-exec") != 0 || argc < 5) {
             fprintf(2, "usage: find path name [-exec command args...]\n");
