@@ -10,21 +10,21 @@
 void run_exec(char *command_argv[], char *path);
 
 /* ===== CODE =====*/
-// Return the last element of path
-char * basename(char *path) {
-    char *p;
+// Compare only the final path component, excluding trailing slashes.
+static int name_matches(char *path, char *target) {
+    char *end = path + strlen(path);
+    while (end > path && end[-1] == '/')
+        end--;
 
-    p = path + strlen(path);
-    while (p > path && p[-1] == '/')
-        p--;
+    if (end == path)
+        return path[0] == '/' && strcmp(target, "/") == 0;
 
-    if (p == path)
-        return path;
+    char *start = end;
+    while (start > path && start[-1] != '/')
+        start--;
 
-    while (p > path && p[-1] != '/')
-        p--;
-
-    return p;
+    uint len = end - start;
+    return strlen(target) == len && memcmp(start, target, len) == 0;
 }
 
 void find(char *path, char *target, char *exec_argv[]) {
@@ -49,7 +49,7 @@ void find(char *path, char *target, char *exec_argv[]) {
     }
 
     // check if current path's basename match
-    if (strcmp(basename(path), target) == 0) {
+    if (name_matches(path, target)) {
         if (exec_argv == 0)
             printf("%s\n", path);
         else
@@ -72,7 +72,8 @@ void find(char *path, char *target, char *exec_argv[]) {
     // Keep the current path in buf
     strcpy(buf, path);
     p = buf + strlen(buf);
-    *p++ = '/';
+    if (p == buf || p[-1] != '/')
+        *p++ = '/';
 
     // Read each entry in folder and using recursion to search
     while ((n = read(fd, &de, sizeof(de))) == (int)sizeof(de)) {
@@ -92,6 +93,8 @@ void find(char *path, char *target, char *exec_argv[]) {
 
     if (n < 0)
         fprintf(2, "find: read error in %s\n", path);
+    else if (n > 0)
+        fprintf(2, "find: incomplete directory entry in %s\n", path);
 
     close(fd);
 }
