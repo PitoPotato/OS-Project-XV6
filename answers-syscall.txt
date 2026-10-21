@@ -1,0 +1,76 @@
+CS333 Lab 2 – System Calls
+Task 3.1 – Using GDB
+
+Q1. Which function called syscall?
+Answer: usertrap()
+
+    Evidence: GDB backtrace showed:
+    (gdb) c
+    Continuing.
+    [Switching to Thread 1.2]
+
+    Thread 2 hit Breakpoint 1, syscall () at kernel/syscall.c:138
+    138     {
+    (gdb) backtrace
+    #0  syscall () at kernel/syscall.c:138
+    #1  0x0000000080001b2a in usertrap () at kernel/trap.c:68
+    #2  0x0000003ffffff09c in ?? ()
+
+Q2. What is p->trapframe->a7 and what does it represent?
+Answer: The value of p->trapframe->a7 is 0xf (15 in decimal), which represents the SYS_open system call. It indicates that the process is requesting the kernel to open a file.
+
+    Evidence:
+    (gdb) backtrace
+    #0  syscall () at kernel/syscall.c:138
+    #1  0x0000000080001b2a in usertrap () at kernel/trap.c:68
+    #2  0x0000003ffffff09c in ?? ()
+    (gdb) n
+    4140      struct proc *p = myproc();
+    (gdb) n
+    142       num = p->trapframe->a7;
+    (gdb) p /x p->trapframe->a7
+    $1 = 0xf
+    (gdb)
+
+and the define in kernel/syscall.h
+
+Q3. What was the previous CPU mode?
+Answer: User mode
+
+    Evidence:
+    (gdb) p /x $sstatus
+    $2 = 0x200000022
+    Bit 8, known as SPP (Supervisor Previous Privilege), records the CPU's privilege mode before the trap occurred. Since SPP = 0, the CPU was previously in User mode before switching to Supervisor mode to handle the system call.
+
+Q4. Which assembly instruction panics? Which register is num?
+Answer: lw a3,0(zero) at address 0x80001d7a.
+
+    Evidence:
+    hart 1 starting
+    hart 2 starting
+    scause=0xd sepc=0x80001d7a stval=0x0
+    panic: kerneltrap
+
+Q5. Why does the kernel crash?
+Answer: The kernel crashes because it attempts to read memory at address 0x0, which is not mapped in the kernel's address space
+
+    Evidence:
+    scause = 0xd indicates a load page fault, and stval = 0x0 identifies the invalid memory address.
+
+Q6. Which process was running? What is its PID?
+Answer: The process running when the kernel panicked was init
+PID: 1
+
+    Evidence:
+    (gdb) b *0x80001d7a
+    Breakpoint 1 at 0x80001d7a: file kernel/syscall.c, line 143.
+    (gdb) c
+    Continuing.
+    [Switching to Thread 1.2]
+
+    Thread 2 hit Breakpoint 1, syscall () at kernel/syscall.c:143
+    143       num = *(int *)0;
+    (gdb) p p->name
+    $1 = "init", '\000' <repeats 11 times>
+    (gdb) p p->pid
+    $2 = 1
