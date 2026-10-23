@@ -25,7 +25,7 @@ Answer: The value of p->trapframe->a7 is 0xf (15 in decimal), which represents t
     #1  0x0000000080001b2a in usertrap () at kernel/trap.c:68
     #2  0x0000003ffffff09c in ?? ()
     (gdb) n
-    4140      struct proc *p = myproc();
+    140       struct proc *p = myproc();
     (gdb) n
     142       num = p->trapframe->a7;
     (gdb) p /x p->trapframe->a7
@@ -43,7 +43,9 @@ Answer: User mode
     Bit 8, known as SPP (Supervisor Previous Privilege), records the CPU's privilege mode before the trap occurred. Since SPP = 0, the CPU was previously in User mode before switching to Supervisor mode to handle the system call.
 
 Q4. Which assembly instruction panics? Which register is num?
-Answer: lw a3,0(zero) at address 0x80001d7a.
+Answer: The faulting instruction is `lw a3, 0(zero)` at address
+0x80001d7a. It tries to load a 32-bit value from address 0 into register
+`a3`; therefore `a3` is the register holding the local variable `num`.
 
     Evidence:
     hart 1 starting
