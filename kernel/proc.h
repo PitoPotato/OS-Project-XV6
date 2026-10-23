@@ -101,4 +101,6 @@ struct proc {
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
+  int sandbox_mask;            // bit n set: reject system call n
+  char sandbox_path[MAXPATH];  // pathname still allowed for masked open/exec
 };

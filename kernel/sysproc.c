@@ -98,6 +98,16 @@ sys_kill(void)
   return kkill(pid);
 }
 
+uint64
+sys_interpose(void)
+{
+  int mask;
+
+  argint(0, &mask);
+  myproc()->sandbox_mask = mask;
+  return 0;
+}
+
 // return how many clock tick interrupts have occurred
 // since start.
 uint64
