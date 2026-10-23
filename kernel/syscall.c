@@ -135,6 +135,23 @@ static uint64 (*syscalls[])(void) = {
   // clang-format on
 };
 
+// Return 1 if interpose() forbids system call num for process p.
+static int
+sandbox_denied(struct proc *p, int num)
+{
+  char path[MAXPATH];
+
+  if ((p->sandbox_mask & (1 << num)) == 0)
+    return 0;
+  if (num == SYS_open || num == SYS_exec) {
+    if (strncmp(p->sandbox_path, "-", MAXPATH) != 0 &&
+        argstr(0, path, MAXPATH) >= 0 &&
+        strncmp(path, p->sandbox_path, MAXPATH) == 0)
+      return 0;
+  }
+  return 1;
+}
+
 void
 syscall(void)
 {
@@ -143,7 +160,7 @@ syscall(void)
 
   num = p->trapframe->a7;
   if (num > 0 && num < NELEM(syscalls) && syscalls[num]) {
-    if(p->sandbox_mask & (1 << num)) {
+    if (sandbox_denied(p, num)) {
       // rejected by interpose(): the handler must not run
       p->trapframe->a0 = -1;
     } else {
