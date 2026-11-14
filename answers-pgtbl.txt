@@ -157,3 +157,29 @@ thành chữ ở cuối dòng.
 print_pgtbl tra 20 địa chỉ được chọn, gồm 7 entry hợp lệ và 13 entry
 rỗng. vmprint duyệt cây, bỏ PTE có V=0 nên không in 13 entry rỗng,
 đồng thời in thêm 4 PTE nhánh thể hiện đường tới các trang lá.
+
+Q3. System call có thể tăng tốc bằng trang nhớ dùng chung
+
+Ngoài getpid(), có thể áp dụng ý tưởng này cho uptime(). System call
+uptime() trả về số tick đã trôi qua kể từ khi hệ thống khởi động. Vì
+giá trị này thay đổi theo thời gian, kernel phải cập nhật nó trong vùng
+nhớ dùng chung mỗi khi số tick thay đổi.
+
+Kernel ánh xạ vùng nhớ đó vào page table của tiến trình với quyền đọc
+cho user, tương tự trang USYSCALL. Một hàm phía user có thể đọc số tick
+trực tiếp từ địa chỉ ảo đã biết và trả về kết quả mà không cần thực
+hiện system call hay chuyển sang kernel mode.
+
+Khác với PID được khởi tạo một lần cho mỗi tiến trình, số tick thay đổi
+liên tục. Cần đồng bộ việc kernel cập nhật và user đọc để giá trị nhận
+được nhất quán; nếu mở rộng trang USYSCALL theo cách này, kernel cũng
+phải cập nhật dữ liệu tương ứng cho các tiến trình.
+
+Q4. Số superpage PTE và số trang bảng trang tiết kiệm
+
+Kernel page table của em có 95 superpage PTE cấp L1. Mỗi PTE này
+ánh xạ một vùng 2 MiB.
+
+Nếu dùng trang 4 KiB, mỗi vùng 2 MiB cần một bảng L0 gồm 512 PTE.
+Vì vậy, S superpage giúp tiết kiệm S trang bảng trang L0, tương
+đương 95 × 4096 = 389120 byte = 380 KiB bộ nhớ dành cho page table.

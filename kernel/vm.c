@@ -70,8 +70,11 @@ void
 kvminit(void)
 {
   kernel_pagetable = kvmmake();
-}
 
+// #ifdef LAB_PGTBL
+//   vmprint(kernel_pagetable);
+// #endif
+}
 // Switch the current CPU's h/w page table register to
 // the kernel's page table, and enable paging.
 void
@@ -180,7 +183,11 @@ vmprint_level(pagetable_t pagetable, int level, uint64 va_base)
         printk("X");
       if (pte & PTE_U)
         printk("U");
+
+      if (level == 1)
+        printk(" [superpage 2 MiB]");
     }
+
 
     printk("\n");
 
@@ -198,6 +205,82 @@ vmprint(pagetable_t pagetable)
 }
 #endif
 
+#ifdef LAB_PGTBL
+static pte_t *
+walk_to_l1(pagetable_t pagetable, uint64 va)
+{
+  pte_t *pte;
+  pagetable_t l1;
+
+  if (va >= MAXVA)
+    panic("walk_to_l1: va");
+
+  pte = &pagetable[PX(2, va)];
+
+  if (*pte & PTE_V) {
+    if (PTE_LEAF(*pte))
+      panic("walk_to_l1: level-2 leaf");
+
+    l1 = (pagetable_t)PTE2PA(*pte);
+  } else {
+    l1 = (pagetable_t)kalloc();
+    if (l1 == 0)
+      return 0;
+
+    memset(l1, 0, PGSIZE);
+    *pte = PA2PTE(l1) | PTE_V;
+  }
+
+  return &l1[PX(1, va)];
+}
+#endif
+#ifdef LAB_PGTBL
+static int
+kmap_pages(pagetable_t pagetable, uint64 va, uint64 size,
+           uint64 pa, int perm)
+{
+  pte_t *pte;
+  uint64 step;
+
+  if (va % PGSIZE != 0 || pa % PGSIZE != 0 ||
+      size == 0 || size % PGSIZE != 0)
+    panic("kmap_pages: alignment");
+
+  if (va >= MAXVA || size > MAXVA - va)
+    panic("kmap_pages: range");
+
+  while (size > 0) {
+    step = PGSIZE;
+
+    if (va % SUPERPGSIZE == 0 &&
+        pa % SUPERPGSIZE == 0 &&
+        size >= SUPERPGSIZE) {
+
+      pte = walk_to_l1(pagetable, va);
+      if (pte == 0)
+        return -1;
+
+      if ((*pte & PTE_V) == 0) {
+        *pte = PA2PTE(pa) | perm | PTE_V;
+        step = SUPERPGSIZE;
+      } else if (PTE_LEAF(*pte)) {
+        panic("kmap_pages: remap superpage");
+      }
+    }
+
+    if (step == PGSIZE) {
+      if (mappages(pagetable, va, PGSIZE, pa, perm) < 0)
+        return -1;
+    }
+
+    va += step;
+    pa += step;
+    size -= step;
+  }
+
+  return 0;
+}
+#endif
 
 // add a mapping to the kernel page table.
 // only used when booting.
@@ -205,8 +288,13 @@ vmprint(pagetable_t pagetable)
 void
 kvmmap(pagetable_t kpgtbl, uint64 va, uint64 pa, uint64 sz, int perm)
 {
+#ifdef LAB_PGTBL
+  if (kmap_pages(kpgtbl, va, sz, pa, perm) != 0)
+    panic("kvmmap");
+#else
   if (mappages(kpgtbl, va, sz, pa, perm) != 0)
     panic("kvmmap");
+#endif
 }
 
 // Create PTEs for virtual addresses starting at va that refer to
