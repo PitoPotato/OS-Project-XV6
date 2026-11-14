@@ -107,12 +107,75 @@ sys_vmprint(void)
 #endif
 
 #ifdef LAB_PGTBL
+
+#define PGACCESS_MAX 4096
+
 int
 sys_pgaccess(void)
 {
-  // lab pgtbl: your code here.
+  uint64 start, dst;
+  int npages;
+  struct proc *p = myproc();
+  uchar mask[PGACCESS_MAX / 8] = {0};
+
+  argaddr(0, &start);
+  argint(1, &npages);
+  argaddr(2, &dst);
+
+  if (npages <= 0 || npages > PGACCESS_MAX)
+    return -1;
+  if (start >= MAXVA)
+    return -1;
+
+  uint64 base = PGROUNDDOWN(start);
+  if ((uint64)npages > (MAXVA - base) / PGSIZE)
+    return -1;
+
+  int nbytes = (npages + 7) / 8;
+  if (dst >= MAXVA || (uint64)nbytes > MAXVA - dst)
+    return -1;
+
+  // Require the complete output buffer to be mapped and writable.
+  for (uint64 a = PGROUNDDOWN(dst);
+       a < dst + nbytes;
+       a += PGSIZE) {
+    pte_t *pte = walk(p->pagetable, a, 0);
+    int required = PTE_V | PTE_U | PTE_W;
+
+    if (pte == 0 || (*pte & required) != required)
+      return -1;
+  }
+
+  // Validate the requested pages and collect the accessed bits.
+  for (int i = 0; i < npages; i++) {
+    uint64 va = base + (uint64)i * PGSIZE;
+    pte_t *pte = walk(p->pagetable, va, 0);
+    int required = PTE_V | PTE_U;
+
+    if (pte == 0 ||
+        (*pte & required) != required ||
+        !PTE_LEAF(*pte))
+      return -1;
+
+    if (*pte & PTE_A)
+      mask[i / 8] |= 1U << (i % 8);
+  }
+
+  if (copyout(p->pagetable, p->sz, dst,
+              (char *)mask, nbytes) < 0)
+    return -1;
+
+  // Clear A only after all validation and the copy have succeeded.
+  for (int i = 0; i < npages; i++) {
+    pte_t *pte =
+      walk(p->pagetable, base + (uint64)i * PGSIZE, 0);
+    *pte &= ~PTE_A;
+  }
+
+  sfence_vma();
   return 0;
 }
+
 #endif
 
 uint64
