@@ -1,0 +1,110 @@
+Q1. Giải thích bảng trang của tiến trình pgtbltest
+
+print_pgtbl() kiểm tra 10 trang đầu và 10 trang cuối của không gian địa
+chỉ. Mỗi trang dài 4 KiB. VA dùng để tra bảng trang và tìm PTE; từ PTE
+tách ra PA cơ sở và perm. Địa chỉ vật lý của một byte bằng PA cơ sở
+cộng offset của VA. Các cờ trong perm cho biết tính hợp lệ, quyền
+truy cập và trạng thái A/D của mapping.
+
+Trong PTE Sv39, số trang vật lý (PPN) nằm ở các bit 53–10; 10 bit thấp
+chứa các cờ và RSW. Theo các macro trong kernel/riscv.h:
+  perm = PTE & 0x3FF
+  PA   = (PTE >> 10) << 12
+Mask 0x3FF gồm 10 bit 1 nên phép AND giữ lại đúng 10 bit thấp. Dịch
+phải 10 bit loại phần cờ để lấy PPN; dịch trái 12 bit đổi PPN thành
+địa chỉ đầu trang vì mỗi trang dài 2^12 byte.
+
+Ví dụ với PTE 0x21FC885B ở dòng VA 0x0:
+  PPN  = 0x21FC885B >> 10       = 0x87F22
+  PA   = 0x87F22 << 12         = 0x87F22000
+  perm = 0x21FC885B & 0x3FF    = 0x5B
+  0x5B = 0x40 + 0x10 + 0x08 + 0x02 + 0x01 = A + U + X + R + V
+Như vậy, PTE này ánh xạ tới trang vật lý 0x87F22000, cho user đọc và
+thực thi nhưng không ghi; A=1 và D=0.
+
+Quy ước cờ:
+- V (0x01): hợp lệ; R (0x02): đọc; W (0x04): ghi; X (0x08): thực thi.
+- U (0x10): user được truy cập theo các quyền tương ứng.
+- A (0x40): đã ghi nhận truy cập, gồm đọc/ghi/lấy lệnh.
+- D (0x80): đã ghi nhận ghi. A/D là trạng thái, không phải quyền.
+Trong các PTE dưới đây, G và hai bit RSW đều bằng 0.
+
+1. Các trang có mapping hợp lệ
+
+VA             PTE          PA           perm   V R W X U A D
+0x0000         0x21FC885B   0x87F22000   0x5B   1 1 0 1 1 1 0
+0x1000         0x21FC7C1B   0x87F1F000   0x1B   1 1 0 1 1 0 0
+0x2000         0x21FC7817   0x87F1E000   0x17   1 1 1 0 1 0 0
+0x3000         0x21FC7407   0x87F1D000   0x07   1 1 1 0 0 0 0
+0x4000         0x21FC70D7   0x87F1C000   0xD7   1 1 1 0 1 1 1
+0x3FFFFFE000   0x21FD08C7   0x87F42000   0xC7   1 1 1 0 0 1 1
+0x3FFFFFF000   0x2000184B   0x80006000   0x4B   1 1 0 1 0 1 0
+
+- VA 0x0000: thuộc phân đoạn text/RX, chứa mã lệnh, dữ liệu chỉ đọc và
+  phần đầu .eh_frame. User được đọc/thực thi, không được ghi để bảo vệ
+  nội dung chương trình. A=1, D=0.
+
+- VA 0x1000: phần tiếp của phân đoạn RX, chứa phần còn lại của .eh_frame
+  trong binary hiện tại. Đây là siêu dữ liệu hỗ trợ khung stack, được
+  nạp cùng phân đoạn RX nên vẫn có X. User được đọc/thực thi, không
+  được ghi; A=D=0. Quyền X không chứng minh nội dung trang là mã lệnh.
+
+- VA 0x2000: chứa data/BSS, gồm dữ liệu toàn cục/static được khởi tạo
+  từ tệp hoặc bằng 0 khi nạp. User được đọc/ghi, không được thực thi.
+  A=D=0 phản ánh trạng thái PTE lúc in; không có nghĩa RAM chưa từng
+  được kernel khởi tạo qua mapping khác.
+
+- VA 0x3000: guard của user stack. Trang có mapping hợp lệ nhưng bị
+  xóa U, nên user không được đọc/ghi/thực thi dù R/W vẫn bật. Guard
+  nằm dưới stack để phát hiện truy cập khi stack tràn xuống dưới.
+
+- VA 0x4000: user stack, chứa dữ liệu phục vụ các lời gọi hàm. User
+  được đọc/ghi, không được thực thi. A=D=1 phù hợp với việc chương
+  trình đang truy cập và ghi dữ liệu stack.
+
+- VA 0x3FFFFFE000: trapframe, lưu trạng thái thanh ghi để tiến trình
+  tiếp tục sau khi kernel xử lý. Trang có RW để mã chuyển chế độ lưu
+  và khôi phục dữ liệu; U=0 bảo vệ trạng thái khỏi user, X=0 vì đây
+  là dữ liệu. A/D có thể bật do mã supervisor truy cập trang này.
+
+- VA 0x3FFFFFF000: trampoline, chứa mã chuyển giữa user và kernel.
+  Trang được ánh xạ cùng VA trong hai bảng trang để mã chuyển tiếp
+  vẫn chạy được khi đổi bảng. Có RX, không có W để bảo vệ mã; U=0
+  nên user không được đọc/ghi/thực thi qua mapping này. A=1, D=0.
+
+2. Các trang chưa ánh xạ
+
+VA             PTE   PA    perm
+0x5000         0x0   0x0   0x0
+0x6000         0x0   0x0   0x0
+0x7000         0x0   0x0   0x0
+0x8000         0x0   0x0   0x0
+0x9000         0x0   0x0   0x0
+0x3FFFFF6000   0x0   0x0   0x0
+0x3FFFFF7000   0x0   0x0   0x0
+0x3FFFFF8000   0x0   0x0   0x0
+0x3FFFFF9000   0x0   0x0   0x0
+0x3FFFFFA000   0x0   0x0   0x0
+0x3FFFFFB000   0x0   0x0   0x0
+0x3FFFFFC000   0x0   0x0   0x0
+0x3FFFFFD000   0x0   0x0   0x0
+
+Ở cả 13 entry, mọi cờ đều bằng 0. V=0 nghĩa là chưa có mapping hợp lệ,
+user không được truy cập. PA=0 là kết quả trích từ PTE rỗng, không phải
+mapping hợp lệ tới RAM tại địa chỉ 0. Riêng 0x3FFFFFD000 là vị trí dành
+cho USYSCALL, hiện chưa được ánh xạ trong kết quả này.
+
+3. Nhận xét
+
+Mã lệnh xử lý dữ liệu ở data/BSS và sử dụng stack khi gọi hàm; guard
+bảo vệ cạnh dưới stack. Khi chuyển giữa user và kernel, trampoline
+thực hiện mã chuyển tiếp và dùng trapframe để lưu/khôi phục thanh ghi.
+
+Guard khác trang chưa ánh xạ: guard có V=1 nhưng U=0, còn trang chưa
+ánh xạ có V=0. Trapframe và trampoline cũng không có U; việc xuất hiện
+trong user page table không đồng nghĩa user được phép truy cập.
+
+VA liên tiếp không bắt buộc có PA liên tiếp. Chẳng hạn VA 0x0 và 0x1000
+ánh xạ tới PA 0x87F22000 và 0x87F1F000, không liền nhau. Bảng trang
+cho phép ghép các trang vật lý ở những vị trí khác nhau thành bố cục
+địa chỉ ảo của tiến trình.
