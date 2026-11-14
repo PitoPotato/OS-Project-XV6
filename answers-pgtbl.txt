@@ -108,3 +108,52 @@ VA liên tiếp không bắt buộc có PA liên tiếp. Chẳng hạn VA 0x0 v�
 ánh xạ tới PA 0x87F22000 và 0x87F1F000, không liền nhau. Bảng trang
 cho phép ghép các trang vật lý ở những vị trí khác nhau thành bố cục
 địa chỉ ảo của tiến trình.
+
+
+Q2. Giải thích các trang lá trong output vmprint
+
+1. Cấu trúc bảng trang
+
+Bảng gốc nằm tại 0x87F25000. Các dòng có một, hai và ba nhóm " .."
+lần lượt là PTE ở L2, L1 và L0. Output gồm 4 PTE nhánh và 7 PTE lá.
+
+PTE nhánh có V=1, R=W=X=0; PA trỏ tới bảng con. VA của dòng nhánh là
+đầu vùng địa chỉ mà mục đó bao phủ. PTE lá ở L0 ánh xạ một trang 4 KiB;
+PA của nó là địa chỉ cơ sở trang vật lý chứa mã hoặc dữ liệu.
+
+VA được ghép từ các chỉ số trên đường đi:
+  VA = (i2 << 30) | (i1 << 21) | (i0 << 12)
+Ví dụ, đường 0 → 0 → 4 tạo VA 0x4000; đường 255 → 511 → 510 tạo VA
+0x3FFFFFE000. Các dòng nhánh và lá cùng bắt đầu tại VA 0x0 mô tả các
+vùng ở cấp khác nhau, không phải các mapping dữ liệu trùng nhau.
+
+2. Nội dung và quyền của từng trang lá
+
+VA             PA           Quyền  Nội dung
+0x0000         0x87F22000   RXU    Mã lệnh, dữ liệu chỉ đọc và đầu .eh_frame
+0x1000         0x87F1F000   RXU    Phần tiếp .eh_frame trong phân đoạn RX
+0x2000         0x87F1E000   RWU    Data/BSS của chương trình
+0x3000         0x87F1D000   RW     Guard của user stack
+0x4000         0x87F1C000   RWU    User stack
+0x3FFFFFE000   0x87F42000   RW     Trapframe lưu trạng thái thanh ghi
+0x3FFFFFF000   0x80006000   RX     Trampoline chứa mã chuyển chế độ
+
+- Hai trang RXU: user được đọc/thực thi, không được ghi. Trang 0x1000
+  có X do được nạp cùng phân đoạn RX dù nội dung là siêu dữ liệu.
+- Data/BSS và stack có RWU: user được đọc/ghi, không được thực thi.
+- Guard và trapframe có RW nhưng U=0: user không được đọc/ghi/thực
+  thi. Guard phát hiện stack tràn; trapframe được mã supervisor dùng
+  để lưu và khôi phục trạng thái khi chuyển giữa user và kernel.
+- Trampoline có RX nhưng U=0: user không được đọc/ghi/thực thi qua
+  mapping này. Mã supervisor được thực thi; W=0 giúp bảo vệ mã.
+
+3. Quan hệ với print_pgtbl ở Task 1
+
+Trong cùng lần chạy, cả 7 trang lá có VA, PTE và PA trùng với các entry
+tương ứng ở Task 1. Chuỗi RWXU trong vmprint biểu diễn các bit quyền
+của chính PTE đó; V/A/D vẫn nằm trong giá trị PTE nhưng không được in
+thành chữ ở cuối dòng.
+
+print_pgtbl tra 20 địa chỉ được chọn, gồm 7 entry hợp lệ và 13 entry
+rỗng. vmprint duyệt cây, bỏ PTE có V=0 nên không in 13 entry rỗng,
+đồng thời in thêm 4 PTE nhánh thể hiện đường tới các trang lá.
