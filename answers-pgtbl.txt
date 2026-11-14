@@ -14,12 +14,12 @@ Mask 0x3FF gồm 10 bit 1 nên phép AND giữ lại đúng 10 bit thấp. Dịc
 phải 10 bit loại phần cờ để lấy PPN; dịch trái 12 bit đổi PPN thành
 địa chỉ đầu trang vì mỗi trang dài 2^12 byte.
 
-Ví dụ với PTE 0x21FC885B ở dòng VA 0x0:
-  PPN  = 0x21FC885B >> 10       = 0x87F22
-  PA   = 0x87F22 << 12         = 0x87F22000
-  perm = 0x21FC885B & 0x3FF    = 0x5B
+Ví dụ với PTE 0x21FDF85B ở dòng VA 0x0:
+  PPN  = 0x21FDF85B >> 10       = 0x87F7E
+  PA   = 0x87F7E << 12         = 0x87F7E000
+  perm = 0x21FDF85B & 0x3FF    = 0x5B
   0x5B = 0x40 + 0x10 + 0x08 + 0x02 + 0x01 = A + U + X + R + V
-Như vậy, PTE này ánh xạ tới trang vật lý 0x87F22000, cho user đọc và
+Như vậy, PTE này ánh xạ tới trang vật lý 0x87F7E000, cho user đọc và
 thực thi nhưng không ghi; A=1 và D=0.
 
 Quy ước cờ:
@@ -32,13 +32,14 @@ Trong các PTE dưới đây, G và hai bit RSW đều bằng 0.
 1. Các trang có mapping hợp lệ
 
 VA             PTE          PA           perm   V R W X U A D
-0x0000         0x21FC885B   0x87F22000   0x5B   1 1 0 1 1 1 0
-0x1000         0x21FC7C1B   0x87F1F000   0x1B   1 1 0 1 1 0 0
-0x2000         0x21FC7817   0x87F1E000   0x17   1 1 1 0 1 0 0
-0x3000         0x21FC7407   0x87F1D000   0x07   1 1 1 0 0 0 0
-0x4000         0x21FC70D7   0x87F1C000   0xD7   1 1 1 0 1 1 1
-0x3FFFFFE000   0x21FD08C7   0x87F42000   0xC7   1 1 1 0 0 1 1
-0x3FFFFFF000   0x2000184B   0x80006000   0x4B   1 1 0 1 0 1 0
+0x0000         0x21FDF85B   0x87F7E000   0x5B   1 1 0 1 1 1 0
+0x1000         0x21FDEC1B   0x87F7B000   0x1B   1 1 0 1 1 0 0
+0x2000         0x21FDE817   0x87F7A000   0x17   1 1 1 0 1 0 0
+0x3000         0x21FDE407   0x87F79000   0x07   1 1 1 0 0 0 0
+0x4000         0x21FDE0D7   0x87F78000   0xD7   1 1 1 0 1 1 1
+0x3FFFFFD000   0x21FEC413   0x87FB1000   0x13   1 1 0 0 1 0 0
+0x3FFFFFE000   0x21FE7CC7   0x87F9F000   0xC7   1 1 1 0 0 1 1
+0x3FFFFFF000   0x20001C4B   0x80007000   0x4B   1 1 0 1 0 1 0
 
 - VA 0x0000: thuộc phân đoạn text/RX, chứa mã lệnh, dữ liệu chỉ đọc và
   phần đầu .eh_frame. User được đọc/thực thi, không được ghi để bảo vệ
@@ -61,6 +62,15 @@ VA             PTE          PA           perm   V R W X U A D
 - VA 0x4000: user stack, chứa dữ liệu phục vụ các lời gọi hàm. User
   được đọc/ghi, không được thực thi. A=D=1 phù hợp với việc chương
   trình đang truy cập và ghi dữ liệu stack.
+
+- VA 0x3FFFFFD000: USYSCALL, trang dùng chung giữa kernel và tiến trình.
+  Đầu trang chứa struct usyscall với trường pid được kernel khởi tạo
+  bằng PID của chính tiến trình. ugetpid() đọc trường này trực tiếp
+  thay vì thực hiện ecall để chuyển sang kernel. Trong output hiện tại,
+  perm=0x13=V|R|U: mapping hợp lệ, user được đọc nhưng không được ghi
+  hoặc thực thi vì W=X=0. A=D=0 tại thời điểm in; việc kernel đã ghi
+  PID qua mapping kernel không buộc A/D của mapping user phải bật.
+  Kernel vẫn cập nhật được trang vật lý qua mapping RW của kernel.
 
 - VA 0x3FFFFFE000: trapframe, lưu trạng thái thanh ghi để tiến trình
   tiếp tục sau khi kernel xử lý. Trang có RW để mã chuyển chế độ lưu
@@ -87,12 +97,13 @@ VA             PTE   PA    perm
 0x3FFFFFA000   0x0   0x0   0x0
 0x3FFFFFB000   0x0   0x0   0x0
 0x3FFFFFC000   0x0   0x0   0x0
-0x3FFFFFD000   0x0   0x0   0x0
 
-Ở cả 13 entry, mọi cờ đều bằng 0. V=0 nghĩa là chưa có mapping hợp lệ,
+Ở cả 12 entry, mọi cờ đều bằng 0. V=0 nghĩa là chưa có mapping hợp lệ,
 user không được truy cập. PA=0 là kết quả trích từ PTE rỗng, không phải
-mapping hợp lệ tới RAM tại địa chỉ 0. Riêng 0x3FFFFFD000 là vị trí dành
-cho USYSCALL, hiện chưa được ánh xạ trong kết quả này.
+mapping hợp lệ tới RAM tại địa chỉ 0. Kết quả được giải thích ở đây là
+output sau khi hoàn thành Task 4: USYSCALL tại 0x3FFFFFD000 đã được ánh
+xạ với quyền RU, thuộc 8 entry hợp lệ ở bảng trên. Vì vậy, 20 địa chỉ
+được print_pgtbl() kiểm tra gồm 8 entry hợp lệ và 12 entry chưa ánh xạ.
 
 3. Nhận xét
 
@@ -105,7 +116,7 @@ Guard khác trang chưa ánh xạ: guard có V=1 nhưng U=0, còn trang chưa
 trong user page table không đồng nghĩa user được phép truy cập.
 
 VA liên tiếp không bắt buộc có PA liên tiếp. Chẳng hạn VA 0x0 và 0x1000
-ánh xạ tới PA 0x87F22000 và 0x87F1F000, không liền nhau. Bảng trang
+ánh xạ tới PA 0x87F7E000 và 0x87F7B000, không liền nhau. Bảng trang
 cho phép ghép các trang vật lý ở những vị trí khác nhau thành bố cục
 địa chỉ ảo của tiến trình.
 
@@ -114,8 +125,8 @@ Q2. Giải thích các trang lá trong output vmprint
 
 1. Cấu trúc bảng trang
 
-Bảng gốc nằm tại 0x87F25000. Các dòng có một, hai và ba nhóm " .."
-lần lượt là PTE ở L2, L1 và L0. Output gồm 4 PTE nhánh và 7 PTE lá.
+Bảng gốc nằm tại 0x87F81000. Các dòng có một, hai và ba nhóm " .."
+lần lượt là PTE ở L2, L1 và L0. Output gồm 4 PTE nhánh và 8 PTE lá.
 
 PTE nhánh có V=1, R=W=X=0; PA trỏ tới bảng con. VA của dòng nhánh là
 đầu vùng địa chỉ mà mục đó bao phủ. PTE lá ở L0 ánh xạ một trang 4 KiB;
@@ -130,17 +141,19 @@ vùng ở cấp khác nhau, không phải các mapping dữ liệu trùng nhau.
 2. Nội dung và quyền của từng trang lá
 
 VA             PA           Quyền  Nội dung
-0x0000         0x87F22000   RXU    Mã lệnh, dữ liệu chỉ đọc và đầu .eh_frame
-0x1000         0x87F1F000   RXU    Phần tiếp .eh_frame trong phân đoạn RX
-0x2000         0x87F1E000   RWU    Data/BSS của chương trình
-0x3000         0x87F1D000   RW     Guard của user stack
-0x4000         0x87F1C000   RWU    User stack
-0x3FFFFFE000   0x87F42000   RW     Trapframe lưu trạng thái thanh ghi
-0x3FFFFFF000   0x80006000   RX     Trampoline chứa mã chuyển chế độ
+0x0000         0x87F7E000   RXU    Mã lệnh, dữ liệu chỉ đọc và đầu .eh_frame
+0x1000         0x87F7B000   RXU    Phần tiếp .eh_frame trong phân đoạn RX
+0x2000         0x87F7A000   RWU    Data/BSS của chương trình
+0x3000         0x87F79000   RW     Guard của user stack
+0x4000         0x87F78000   RWU    User stack
+0x3FFFFFD000   0x87FB1000   RU     USYSCALL chứa PID
+0x3FFFFFE000   0x87F9F000   RW     Trapframe lưu trạng thái thanh ghi
+0x3FFFFFF000   0x80007000   RX     Trampoline chứa mã chuyển chế độ
 
 - Hai trang RXU: user được đọc/thực thi, không được ghi. Trang 0x1000
   có X do được nạp cùng phân đoạn RX dù nội dung là siêu dữ liệu.
 - Data/BSS và stack có RWU: user được đọc/ghi, không được thực thi.
+- USYSCALL có RU: user được đọc PID, không được ghi hoặc thực thi.
 - Guard và trapframe có RW nhưng U=0: user không được đọc/ghi/thực
   thi. Guard phát hiện stack tràn; trapframe được mã supervisor dùng
   để lưu và khôi phục trạng thái khi chuyển giữa user và kernel.
@@ -149,13 +162,13 @@ VA             PA           Quyền  Nội dung
 
 3. Quan hệ với print_pgtbl ở Task 1
 
-Trong cùng lần chạy, cả 7 trang lá có VA, PTE và PA trùng với các entry
+Trong cùng lần chạy, cả 8 trang lá có VA, PTE và PA trùng với các entry
 tương ứng ở Task 1. Chuỗi RWXU trong vmprint biểu diễn các bit quyền
 của chính PTE đó; V/A/D vẫn nằm trong giá trị PTE nhưng không được in
 thành chữ ở cuối dòng.
 
-print_pgtbl tra 20 địa chỉ được chọn, gồm 7 entry hợp lệ và 13 entry
-rỗng. vmprint duyệt cây, bỏ PTE có V=0 nên không in 13 entry rỗng,
+print_pgtbl tra 20 địa chỉ được chọn, gồm 8 entry hợp lệ và 12 entry
+rỗng. vmprint duyệt cây, bỏ PTE có V=0 nên không in 12 entry rỗng,
 đồng thời in thêm 4 PTE nhánh thể hiện đường tới các trang lá.
 
 Q3. System call có thể tăng tốc bằng trang nhớ dùng chung
@@ -180,6 +193,64 @@ Q4. Số superpage PTE và số trang bảng trang tiết kiệm
 Kernel page table của em có 95 superpage PTE cấp L1. Mỗi PTE này
 ánh xạ một vùng 2 MiB.
 
-Nếu dùng trang 4 KiB, mỗi vùng 2 MiB cần một bảng L0 gồm 512 PTE.
-Vì vậy, S superpage giúp tiết kiệm S trang bảng trang L0, tương
-đương 95 × 4096 = 389120 byte = 380 KiB bộ nhớ dành cho page table.
+1. Cách tính số superpage từ các mapping trong kvmmake()
+
+Các khoảng dưới đây được viết theo dạng [đầu, cuối), không gồm địa
+chỉ cuối. Các mapping PLIC và RAM này đều có VA bằng PA.
+
+- PLIC: bắt đầu tại 0x0C000000, kích thước 0x04000000 = 64 MiB,
+  kết thúc tại 0x10000000. Cả VA và PA đầu vùng đều căn chỉnh 2 MiB,
+  toàn vùng có quyền RW nên dùng 64 / 2 = 32 superpage L1.
+
+- RAM: KERNBASE=0x80000000 và PHYSTOP=0x88000000, tổng cộng 128 MiB.
+  Trong bản build được kiểm tra, etext=0x80008000. kvmmake() ánh xạ
+  [0x80000000, 0x80008000) với quyền RX và phần RAM còn lại với quyền
+  RW. Vùng 2 MiB đầu [0x80000000, 0x80200000) chứa cả RX và RW nên
+  không thể gộp thành một superpage có cùng quyền; vùng này dùng các
+  trang 4 KiB. Phần [0x80200000, 0x88000000) có quyền RW đồng nhất,
+  căn chỉnh 2 MiB và dài 126 MiB, nên dùng 126 / 2 = 63 superpage L1.
+
+- UART0, VIRTIO0, trampoline và từng kernel stack đều được kvmmap()
+  ánh xạ bằng các vùng nhỏ hơn 2 MiB, nên dùng trang 4 KiB. Các guard
+  giữa kernel stack không được ánh xạ. Những vùng này không tạo thêm
+  superpage.
+
+Tổng số superpage L1: 32 + 63 = 95. Đây là số PTE lá L1 trong bảng
+trang kernel; các mapping của user vẫn dùng trang 4 KiB.
+
+2. Đối chiếu với output thực tế của vmprint()
+
+Đã gọi vmprint(kernel_pagetable) qua GDB tại đầu kvminithart(), sau
+khi kvminit() tạo xong bảng trang và trước khi bật paging. Output có
+95 dòng mang nhãn [superpage 2 MiB]: 32 dòng thuộc PLIC và 63 dòng
+thuộc RAM. Một số dòng ở đầu/cuối hai vùng như sau; dấu ... chỉ các
+dòng được lược bớt trong trích đoạn:
+
+ .. ..0x000000000c000000: pte 0x0000000003000007 pa 0x000000000c000000 RW [superpage 2 MiB]
+ ...
+ .. ..0x000000000fe00000: pte 0x0000000003f80007 pa 0x000000000fe00000 RW [superpage 2 MiB]
+ ...
+ .. ..0x0000000080200000: pte 0x0000000020080007 pa 0x0000000080200000 RW [superpage 2 MiB]
+ ...
+ .. ..0x0000000087e00000: pte 0x0000000021f80007 pa 0x0000000087e00000 RW [superpage 2 MiB]
+
+Mỗi dòng có hai nhóm " ..", tương ứng PTE ở L1. Các PTE này có V=1,
+R=W=1, X=U=0 nên là lá RW chỉ dành cho supervisor. Cả VA và PA ở các
+dòng superpage đều là bội số của 0x200000 (2 MiB). Địa chỉ đầu vùng
+của hai dòng liên tiếp trong cùng nhóm cách nhau 0x200000, đúng với
+kích thước mà một PTE lá L1 bao phủ.
+
+3. Số trang bảng trang L0 và bộ nhớ tiết kiệm
+
+Nếu dùng trang 4 KiB, mỗi vùng 2 MiB cần 2 MiB / 4 KiB = 512 PTE
+lá L0. Mỗi PTE dài 8 byte, nên 512 PTE chiếm 4096 byte, đúng một
+trang bảng L0. Dùng một PTE lá L1 thay cho nhánh trỏ tới bảng L0 sẽ
+loại bỏ nhu cầu cấp phát trang bảng L0 đó.
+
+Vì vậy, 95 superpage tiết kiệm 95 trang bảng trang L0, tương đương:
+  95 × 4096 = 389120 byte = 380 KiB.
+
+Đây là bộ nhớ dùng để lưu bảng trang được tiết kiệm. Dung lượng vùng
+được ánh xạ vẫn giữ nguyên: 95 × 2 MiB = 190 MiB, gồm 64 MiB vùng
+MMIO của PLIC và 126 MiB RAM. Các bảng L1 và bảng gốc L2 vẫn cần
+tồn tại để chứa các PTE và mô tả cấu trúc của cây bảng trang.
